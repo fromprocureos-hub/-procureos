@@ -85,24 +85,18 @@ def create_app():
     def health():
         return jsonify({'status': 'ok', 'version': '2.0'})
   
-    @app.route('/', defaults={'path': ''})
+   @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_frontend(path):
-        from flask import send_from_directory, request
-        static_folder = os.path.join(os.path.dirname(__file__), 'static')
-        # Let API routes pass through
-        if path.startswith('auth/') or path.startswith('vendors') or \
-           path.startswith('procurements') or path.startswith('quote-submit') or \
-           path.startswith('vendor-lists') or path.startswith('upload') or \
-           path.startswith('po') or path.startswith('spec'):
-            from flask import abort
-            abort(404)
-        # Serve static files
-        if path and os.path.exists(os.path.join(static_folder, path)):
-            return send_from_directory(static_folder, path)
-        # All other routes serve index.html (React handles routing)
-        return send_from_directory(static_folder, 'index.html')
-
+    from flask import send_from_directory
+    static_folder = os.path.join(os.path.dirname(__file__), 'static')
+    api_prefixes = ['auth/', 'vendors/', 'quote-submit', 'vendor-lists', 'upload', 'po/', 'api/']
+    if any(path.startswith(p) for p in api_prefixes):
+        from flask import abort
+        abort(404)
+    if path and os.path.exists(os.path.join(static_folder, path)):
+        return send_from_directory(static_folder, path)
+    return send_from_directory(static_folder, 'index.html')
     # Init DB + seed industries
     with app.app_context():
         db.create_all()
