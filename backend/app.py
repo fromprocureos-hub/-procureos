@@ -75,7 +75,7 @@ def create_app():
     app.register_blueprint(vendors_bp,       url_prefix='/vendors')
     app.register_blueprint(spec_bp, url_prefix='/api')
     app.register_blueprint(procurements_bp,  url_prefix='/procurements')
-    app.register_blueprint(quotes_bp,        url_prefix='/quote')
+    app.register_blueprint(quotes_bp,        url_prefix='/api/quote')
     app.register_blueprint(po_bp,            url_prefix='/po')
     app.register_blueprint(vendor_lists_bp)
     app.register_blueprint(upload_bp)

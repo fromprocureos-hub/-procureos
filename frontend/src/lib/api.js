@@ -84,9 +84,9 @@ export const poAPI = {
 }
 
 export const portalAPI = {
-  getInfo: token        => api.get(`/quote/${token}`),
-  submit:  (token, data) => api.post(`/quote/${token}/submit`, data),
-  decline: token        => api.post(`/quote/${token}/decline`),
+  getInfo: token        => api.get(`/api/quote/${token}`),
+  submit:  (token, data) => api.post(`/api/quote/${token}/submit`, data),
+  decline: token        => api.post(`/api/quote/${token}/decline`),
 }
 
 export const uploadAPI = {
