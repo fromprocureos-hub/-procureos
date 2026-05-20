@@ -86,17 +86,17 @@ def create_app():
         return jsonify({'status': 'ok', 'version': '2.0'})
   
    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def serve_frontend(path):
-    from flask import send_from_directory
-    static_folder = os.path.join(os.path.dirname(__file__), 'static')
-    api_prefixes = ['auth/', 'vendors/', 'quote-submit', 'vendor-lists', 'upload', 'po/', 'api/']
-    if any(path.startswith(p) for p in api_prefixes):
-        from flask import abort
-        abort(404)
-    if path and os.path.exists(os.path.join(static_folder, path)):
-        return send_from_directory(static_folder, path)
-    return send_from_directory(static_folder, 'index.html')
+   @app.route('/<path:path>')
+   def serve_frontend(path):
+       from flask import send_from_directory
+       static_folder = os.path.join(os.path.dirname(__file__), 'static')
+       api_prefixes = ['auth/', 'vendors/', 'quote-submit', 'vendor-lists', 'upload', 'po/', 'api/']
+       if any(path.startswith(p) for p in api_prefixes):
+           from flask import abort
+           abort(404)
+       if path and os.path.exists(os.path.join(static_folder, path)):
+           return send_from_directory(static_folder, path)
+       return send_from_directory(static_folder, 'index.html')
     # Init DB + seed industries
     with app.app_context():
         db.create_all()
