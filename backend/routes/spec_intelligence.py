@@ -69,11 +69,8 @@ Now analyze the RFQ above and return your JSON response."""
         )
         print(f'[GROQ] spec-check status: {response.status_code}')
         result = response.json()
-        text = result['choices'][0]['message']['content'].strip()
-        if text.startswith('```'):
-            text = text.split('```')[1]
-            if text.startswith('json'):
-                text = text[4:]
+        text = result['choices'][0]['message']['content'].strip()import re
+        text = re.sub(r'```json|```', '', text).strip()
         warnings = json.loads(text)
         return jsonify({'warnings': warnings})
     except Exception as e:
