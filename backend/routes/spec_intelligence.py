@@ -32,28 +32,10 @@ Analyze this RFQ and identify UP TO 3 real issues that will either:
 
 STRICT RULES:
 1. QUANTITY: Only flag if genuinely abnormal for that item category.
-   - 1 ream of paper = fine for a small office
-   - 1 unit of industrial machinery = suspicious, flag it
-   - Know the difference. Do not flag normal quantities.
-
 2. DEADLINE: Only flag if genuinely impossible or expensive for that item.
-   - Custom manufactured items need 2-4 weeks minimum
-   - Standard office supplies can ship in 2-3 days
-   - Know industry lead times. Be specific with numbers.
-
 3. MISSING INFO: Flag only critical missing details suppliers NEED to quote accurately.
-   - Paper: needs GSM weight, size (A4/A3/Letter), brand preference or "any brand"
-   - Electronics: needs exact model or specifications
-   - Services: needs location, scope, duration
-   - Do not flag nice-to-have information
-
 4. OVER-SPECIFICATION: Flag requirements that unnecessarily restrict supplier pool.
-   - Certifications not required for this item category
-   - Brand exclusivity when alternatives exist
-   - Tolerances tighter than industry standard
-
 5. VAGUE DESCRIPTION: Flag only if suppliers genuinely cannot quote without clarification.
-
 6. IF THE RFQ IS FINE: Return empty array. Do not invent problems.
 
 RESPONSE FORMAT:
@@ -66,27 +48,15 @@ Each object must have:
 - impact: Real consequence. Include specific numbers or percentages where possible.
 - fix: Exactly what to change or add. One sentence. Actionable.
 
-EXAMPLE OUTPUT FOR PAPER RFQ:
-[
-  {{
-    "type": "missing_info",
-    "severity": "high",
-    "message": "GSM weight and paper size not specified for A4 papers.",
-    "impact": "Suppliers will quote different grades causing incomparable prices. You may receive 80GSM quotes alongside 100GSM quotes with no way to compare.",
-    "fix": "Add paper weight (e.g. 80GSM standard) and confirm size is A4 210x297mm."
-  }}
-]
-
-EXAMPLE OUTPUT FOR CLEAN RFQ:
-[]
-
 Now analyze the RFQ above and return your JSON response."""
 
     try:
+        groq_key = os.getenv("GROQ_API_KEY")
+        print(f'[GROQ] spec-check called, key present: {bool(groq_key)}')
         response = requests.post(
             'https://api.groq.com/openai/v1/chat/completions',
             headers={
-                'Authorization': f'Bearer {os.getenv("GROQ_API_KEY")}',
+                'Authorization': f'Bearer {groq_key}',
                 'Content-Type': 'application/json'
             },
             json={
@@ -94,14 +64,22 @@ Now analyze the RFQ above and return your JSON response."""
                 'messages': [{'role': 'user', 'content': system_prompt}],
                 'temperature': 0.1,
                 'max_tokens': 800
-            }
+            },
+            timeout=15
         )
+        print(f'[GROQ] spec-check status: {response.status_code}')
         result = response.json()
         text = result['choices'][0]['message']['content'].strip()
+        if text.startswith('```'):
+            text = text.split('```')[1]
+            if text.startswith('json'):
+                text = text[4:]
         warnings = json.loads(text)
         return jsonify({'warnings': warnings})
     except Exception as e:
+        print(f'[GROQ ERROR] spec-check: {e}')
         return jsonify({'warnings': []})
+
 
 @spec_bp.route('/vendor-warning', methods=['POST'])
 @jwt_required()
@@ -115,8 +93,6 @@ def vendor_warning():
     item_name = data.get('item_name', '')
 
     prompt = f"""You are a procurement risk analyst. A buyer is about to send an RFQ to only ONE vendor.
-
-item_name = data.get('item_name', '')
 
 SITUATION:
 - Selected vendor: {vendor_name}
@@ -134,8 +110,7 @@ RULES:
 - If reliability is below 75% mention it directly
 - If deadline is tight mention the risk of delays
 - If category is competitive mention they could get better prices with competition
-- Never be generic. Never say "consider adding more vendors" as a standalone sentence.
-- Sound like a smart colleague warning them, not a system message
+- Never be generic. Sound like a smart colleague warning them, not a system message
 
 Return ONLY a JSON object:
 {{
@@ -146,10 +121,12 @@ Return ONLY a JSON object:
 No markdown. No explanation. Just JSON."""
 
     try:
+        groq_key = os.getenv("GROQ_API_KEY")
+        print(f'[GROQ] vendor-warning called, key present: {bool(groq_key)}')
         response = requests.post(
             'https://api.groq.com/openai/v1/chat/completions',
             headers={
-                'Authorization': f'Bearer {os.getenv("GROQ_API_KEY")}',
+                'Authorization': f'Bearer {groq_key}',
                 'Content-Type': 'application/json'
             },
             json={
@@ -157,13 +134,20 @@ No markdown. No explanation. Just JSON."""
                 'messages': [{'role': 'user', 'content': prompt}],
                 'temperature': 0.3,
                 'max_tokens': 200
-            }
+            },
+            timeout=15
         )
+        print(f'[GROQ] vendor-warning status: {response.status_code}')
         result = response.json()
         text = result['choices'][0]['message']['content'].strip()
+        if text.startswith('```'):
+            text = text.split('```')[1]
+            if text.startswith('json'):
+                text = text[4:]
         parsed = json.loads(text)
         return jsonify(parsed)
     except Exception as e:
+        print(f'[GROQ ERROR] vendor-warning: {e}')
         return jsonify({
             'warning': f'{vendor_name} is your only option if something goes wrong. Adding 2 more vendors takes one click and protects your deadline.',
             'risk_level': 'medium'
