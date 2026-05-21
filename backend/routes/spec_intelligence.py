@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 import os
 import json
+import re
 import requests
 
 spec_bp = Blueprint('spec', __name__)
@@ -69,7 +70,7 @@ Now analyze the RFQ above and return your JSON response."""
         )
         print(f'[GROQ] spec-check status: {response.status_code}')
         result = response.json()
-        text = result['choices'][0]['message']['content'].strip()import re
+        text = result['choices'][0]['message']['content'].strip()
         text = re.sub(r'```json|```', '', text).strip()
         warnings = json.loads(text)
         return jsonify({'warnings': warnings})
@@ -137,10 +138,7 @@ No markdown. No explanation. Just JSON."""
         print(f'[GROQ] vendor-warning status: {response.status_code}')
         result = response.json()
         text = result['choices'][0]['message']['content'].strip()
-        if text.startswith('```'):
-            text = text.split('```')[1]
-            if text.startswith('json'):
-                text = text[4:]
+        text = re.sub(r'```json|```', '', text).strip()
         parsed = json.loads(text)
         return jsonify(parsed)
     except Exception as e:
