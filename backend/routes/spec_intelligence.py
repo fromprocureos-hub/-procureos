@@ -17,39 +17,24 @@ def check_spec():
     deadline = data.get('deadline', '')
     notes = data.get('notes', '')
 
-    system_prompt = f"""You are an elite procurement intelligence system trained on millions of RFQs across 19 industries. Your job is to protect the buyer from costly mistakes before the RFQ is sent.
+    system_prompt = f"""You are a procurement intelligence system. Analyze this RFQ and return warnings as JSON.
 
-BUYER'S RFQ:
+RFQ DETAILS:
 Item: {item_name}
 Quantity: {quantity} {unit}
 Deadline: {deadline}
-Additional Notes: {notes}
+Notes: {notes}
 
-YOUR JOB:
-Analyze this RFQ and identify UP TO 3 real issues that will either:
-- Cost the buyer more money
-- Reduce the number of suppliers who respond
-- Cause confusion or delays
+Return a JSON array of up to 3 warnings. Each warning must have these exact keys with string values in double quotes:
+- "type": one of "deadline", "overspec", "quantity", "missing_info", "vague"
+- "severity": one of "high", "medium"
+- "message": a single sentence describing the issue
+- "impact": the consequence of this issue
+- "fix": one actionable sentence on how to fix it
 
-STRICT RULES:
-1. QUANTITY: Only flag if genuinely abnormal for that item category.
-2. DEADLINE: Only flag if genuinely impossible or expensive for that item.
-3. MISSING INFO: Flag only critical missing details suppliers NEED to quote accurately.
-4. OVER-SPECIFICATION: Flag requirements that unnecessarily restrict supplier pool.
-5. VAGUE DESCRIPTION: Flag only if suppliers genuinely cannot quote without clarification.
-6. IF THE RFQ IS FINE: Return empty array. Do not invent problems.
+If the RFQ looks fine, return an empty array: []
 
-RESPONSE FORMAT:
-Return ONLY a valid JSON array. No markdown. No explanation. No extra text.
-Maximum 3 objects. Minimum 0.
-Each object must have:
-- type: "deadline" | "overspec" | "quantity" | "missing_info" | "vague"
-- severity: "high" | "medium"
-- message: ONE sentence. Direct. Specific to this exact item.
-- impact: Real consequence. Include specific numbers or percentages where possible.
-- fix: Exactly what to change or add. One sentence. Actionable.
-
-Now analyze the RFQ above and return your JSON response."""
+IMPORTANT: Every value must be a properly quoted JSON string. Do not return any text outside the JSON array."""
 
     try:
         groq_key = os.getenv("GROQ_API_KEY")
@@ -62,25 +47,40 @@ Now analyze the RFQ above and return your JSON response."""
             },
             json={
                 'model': 'llama-3.3-70b-versatile',
-                'messages': [{'role': 'user', 'content': system_prompt}],
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'You are a JSON API. You only return valid JSON. Never return unquoted string values. Always wrap all string values in double quotes.'
+                    },
+                    {
+                        'role': 'user',
+                        'content': system_prompt
+                    }
+                ],
                 'temperature': 0.1,
-                'max_tokens': 800
+                'max_tokens': 800,
+                'response_format': {'type': 'json_object'}
             },
             timeout=15
         )
         print(f'[GROQ] spec-check status: {response.status_code}')
         result = response.json()
         text = result['choices'][0]['message']['content'].strip()
-        print(f'[GROQ] spec-check raw: {repr(text)}')
-        # Strip markdown code fences
-        text = re.sub(r'```json', '', text)
-        text = re.sub(r'```', '', text)
-        text = text.strip()
-        # Extract JSON array from the text
-        match = re.search(r'\[.*\]', text, re.DOTALL)
-        if match:
-            text = match.group(0)
-        warnings = json.loads(text)
+        print(f'[GROQ] spec-check raw: {repr(text[:200])}')
+        parsed = json.loads(text)
+        # response_format returns an object, extract the array
+        if isinstance(parsed, dict):
+            warnings = parsed.get('warnings', parsed.get('items', parsed.get('results', [])))
+            # if still a dict with no known key, try to find any list value
+            if not isinstance(warnings, list):
+                for v in parsed.values():
+                    if isinstance(v, list):
+                        warnings = v
+                        break
+                else:
+                    warnings = []
+        else:
+            warnings = parsed
         return jsonify({'warnings': warnings})
     except Exception as e:
         print(f'[GROQ ERROR] spec-check: {e}')
@@ -108,23 +108,13 @@ SITUATION:
 - Deadline: {deadline}
 - Other available vendors in their list: {len(available_vendors)}
 
-YOUR JOB:
-Write ONE short, specific, honest warning message (2 sentences max) explaining the real risk of using only this vendor for this specific situation.
+Write a short 2-sentence warning about the risk of using only this vendor.
+Be specific to the reliability score and category.
 
-RULES:
-- Be specific to the vendor reliability score and category
-- If reliability is below 75% mention it directly
-- If deadline is tight mention the risk of delays
-- If category is competitive mention they could get better prices with competition
-- Never be generic. Sound like a smart colleague warning them, not a system message
+Return ONLY this JSON object with all string values properly quoted:
+{{"warning": "your warning here", "risk_level": "high"}}
 
-Return ONLY a JSON object:
-{{
-  "warning": "your 2 sentence warning here",
-  "risk_level": "high" | "medium" | "low"
-}}
-
-No markdown. No explanation. Just JSON."""
+risk_level must be one of: high, medium, low"""
 
     try:
         groq_key = os.getenv("GROQ_API_KEY")
@@ -137,16 +127,25 @@ No markdown. No explanation. Just JSON."""
             },
             json={
                 'model': 'llama-3.3-70b-versatile',
-                'messages': [{'role': 'user', 'content': prompt}],
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'You are a JSON API. Return only valid JSON with all string values in double quotes.'
+                    },
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ],
                 'temperature': 0.3,
-                'max_tokens': 200
+                'max_tokens': 200,
+                'response_format': {'type': 'json_object'}
             },
             timeout=15
         )
         print(f'[GROQ] vendor-warning status: {response.status_code}')
         result = response.json()
         text = result['choices'][0]['message']['content'].strip()
-        text = re.sub(r'```json|```', '', text).strip()
         parsed = json.loads(text)
         return jsonify(parsed)
     except Exception as e:
