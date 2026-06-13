@@ -14,6 +14,7 @@ export default function NewProcurement() {
   const [vendorWarningLoading, setVendorWarningLoading] = useState(false)
   const [showSpecModal, setShowSpecModal] = useState(false)
   const [specChecking, setSpecChecking] = useState(false)
+  const [rewriting, setRewriting] = useState(false)
   const [procurement, setProcurement] = useState(null)
   const [vendors, setVendors] = useState([])
   const [selectedVendors, setSelectedVendors] = useState([])
@@ -81,6 +82,47 @@ export default function NewProcurement() {
     await doSendRFQ()
   }
 
+  async function handleAIFix() {
+    setRewriting(true)
+    try {
+      const r = await api.post('/api/rfq-rewrite', {
+        item_name: procurement.item_name,
+        quantity: procurement.quantity,
+        unit: procurement.unit,
+        deadline: procurement.deadline,
+        notes: procurement.notes,
+        warnings: specWarnings
+      })
+      const rw = r.data.rewritten
+      // Update the procurement object with rewritten values
+      setProcurement(prev => ({
+        ...prev,
+        item_name: rw.item_name || prev.item_name,
+        quantity: rw.quantity || prev.quantity,
+        unit: rw.unit || prev.unit,
+        deadline: rw.deadline || prev.deadline,
+        notes: rw.notes || prev.notes,
+      }))
+      // Also update form so if user goes back it's prefilled
+      setForm(prev => ({
+        ...prev,
+        item_name: rw.item_name || prev.item_name,
+        quantity: rw.quantity || prev.quantity,
+        unit: rw.unit || prev.unit,
+        deadline: rw.deadline || prev.deadline,
+        notes: rw.notes || prev.notes,
+      }))
+      setShowSpecModal(false)
+      toast.success(rw.changes_summary || 'RFQ improved by AI!')
+      // Auto-proceed to send
+      await doSendRFQ()
+    } catch (err) {
+      toast.error('AI rewrite failed, please fix manually')
+    } finally {
+      setRewriting(false)
+    }
+  }
+
   async function doSendRFQ() {
     setShowSpecModal(false)
     setLoading(true)
@@ -106,15 +148,13 @@ export default function NewProcurement() {
       setVendorWarningLoading(true)
       try {
         const res = await api.post('/api/vendor-warning', {
-  vendor_name: selectedVendor.vendor_name,
-  vendor_reliability: selectedVendor.reliability_score,
-  category: form.category_tag || '',
-  deadline: procurement?.deadline || form.deadline || '',
-  item_name: procurement?.item_name || form.item_name || '',
-  available_vendors: vendors
-    .filter(v => v.vendor_id !== updated[0])
-    .map(v => v.vendor_name)
-})
+          vendor_name: selectedVendor.vendor_name,
+          vendor_reliability: selectedVendor.reliability_score,
+          category: form.category_tag || '',
+          deadline: procurement?.deadline || form.deadline || '',
+          item_name: procurement?.item_name || form.item_name || '',
+          available_vendors: vendors.filter(v => v.vendor_id !== updated[0]).map(v => v.vendor_name)
+        })
         setVendorWarning(res.data)
       } catch {
         setVendorWarning({
@@ -297,10 +337,7 @@ export default function NewProcurement() {
                 {vendorWarning?.risk_level === 'high' ? '🔴' : '⚠️'} Single Vendor Risk Detected
               </div>
               <div style={{ fontSize: 13, color: '#92400e', marginBottom: 12, lineHeight: 1.6 }}>
-                {vendorWarningLoading
-                  ? '🔍 Analyzing risk...'
-                  : vendorWarning?.warning || `If ${vendors.find(v => v.vendor_id === selectedVendors[0])?.vendor_name} is busy or raises their price, you have no backup.`
-                }
+                {vendorWarningLoading ? '🔍 Analyzing risk...' : vendorWarning?.warning || `If ${vendors.find(v => v.vendor_id === selectedVendors[0])?.vendor_name} is busy or raises their price, you have no backup.`}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => {
@@ -327,12 +364,13 @@ export default function NewProcurement() {
         </div>
       )}
 
+      {/* SPEC MODAL */}
       {showSpecModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ background: '#1e3a5f', padding: '20px 24px', borderRadius: '12px 12px 0 0' }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>⚠️ Spec Intelligence Warning</div>
-              <div style={{ fontSize: 13, color: '#93c5fd', marginTop: 4 }}>We found issues that may cost you money</div>
+              <div style={{ fontSize: 13, color: '#93c5fd', marginTop: 4 }}>AI found issues that may cost you money or reduce supplier responses</div>
             </div>
             <div style={{ padding: 24 }}>
               {specWarnings.map((w, i) => (
@@ -352,12 +390,25 @@ export default function NewProcurement() {
                   </div>
                 </div>
               ))}
-              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+
+              {/* AI FIX BUTTON */}
+              <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>✨ Let AI fix it for you</div>
+                <div style={{ fontSize: 13, color: '#0c4a6e', marginBottom: 12 }}>AI will rewrite your RFQ applying all fixes above, then send automatically.</div>
+                <button onClick={handleAIFix} disabled={rewriting} style={{
+                  width: '100%', padding: 12, background: '#0369a1', color: '#fff',
+                  border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer'
+                }}>
+                  {rewriting ? '✨ Rewriting RFQ...' : '✨ Fix & Send with AI'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => { setShowSpecModal(false); setStep(1) }} style={{
-                  flex: 1, padding: 12, background: '#1e3a5f', color: '#fff',
+                  flex: 1, padding: 12, background: '#f3f4f6', color: '#374151',
                   border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer'
                 }}>
-                  ← Go Back & Fix
+                  ← Fix Manually
                 </button>
                 <button onClick={doSendRFQ} style={{
                   flex: 1, padding: 12, background: '#6b7280', color: '#fff',
