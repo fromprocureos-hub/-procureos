@@ -65,6 +65,8 @@ def rfq_rewrite():
     item_history = get_item_history(company_id, d.get('item_name', ''))
     warnings = d.get('warnings', [])
     fixes = '; '.join([w['fix'] for w in warnings])
+    from datetime import datetime, timedelta
+    auto_deadline = (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%dT%H:%M')
 
     try:
         parsed = groq([
@@ -72,12 +74,18 @@ def rfq_rewrite():
             {'role': 'user', 'content': f"""{ctx}
 {item_history}
 
-Fix this RFQ. Use company history to suggest realistic quantity, specs, and deadline.
-Return {{"item_name":"...","quantity":"number","unit":"...","deadline":"YYYY-MM-DDTHH:MM","notes":"detailed specs","changes_summary":"one sentence"}}.
+from datetime import datetime, timedelta
+auto_deadline = (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%dT%H:%M')
 
-Original — Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Deadline:{d.get('deadline')} Notes:{d.get('notes','')}
+        parsed = groq([
+            {'role': 'system', 'content': 'Return only valid JSON.'},
+            {'role': 'user', 'content': f"""Fix this RFQ. Use company history to suggest realistic quantity and specs.
+Return {{"item_name":"...","quantity":"number","unit":"...","notes":"detailed specs","changes_summary":"one sentence"}}.
+
+Original — Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Notes:{d.get('notes','')}
 Fixes: {fixes}"""}
-        ], max_tokens=350)
+        ], max_tokens=300)
+        parsed['deadline'] = auto_deadline
         return jsonify({'rewritten': parsed})
     except Exception as e:
         print(f'[GROQ ERROR] rfq-rewrite: {e}')
