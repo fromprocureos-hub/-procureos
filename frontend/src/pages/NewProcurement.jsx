@@ -15,6 +15,7 @@ export default function NewProcurement() {
   const [showSpecModal, setShowSpecModal] = useState(false)
   const [specChecking, setSpecChecking] = useState(false)
   const [rewriting, setRewriting] = useState(false)
+  const [aiRewritten, setAiRewritten] = useState(false)
   const [procurement, setProcurement] = useState(null)
   const [vendors, setVendors] = useState([])
   const [selectedVendors, setSelectedVendors] = useState([])
@@ -61,15 +62,19 @@ export default function NewProcurement() {
   }
 
   async function handleSendRFQ() {
-    setSpecChecking(true)
-    try {
-      const r = await specAPI.check({
-        item_name: procurement.item_name,
-        quantity: procurement.quantity,
-        unit: procurement.unit,
-        deadline: procurement.deadline,
-        notes: procurement.notes
-      })
+  if (aiRewritten) {
+    await doSendRFQ()
+    return
+  }
+  setSpecChecking(true)
+  try {
+    const r = await specAPI.check({
+      item_name: procurement.item_name,
+      quantity: procurement.quantity,
+      unit: procurement.unit,
+      deadline: procurement.deadline,
+      notes: procurement.notes
+    })
       setSpecChecking(false)
       if (r.data.warnings && r.data.warnings.length > 0) {
         setSpecWarnings(r.data.warnings)
@@ -102,7 +107,7 @@ setForm({
   deadline: deadline,
   notes: rw.notes || form.notes,
 })
-setProcurement(null)
+setAiRewritten(true)
 setShowSpecModal(false)
 setStep(1)
 toast.success('✨ AI improved your RFQ — review and continue')
