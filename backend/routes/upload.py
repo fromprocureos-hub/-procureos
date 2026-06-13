@@ -3,27 +3,64 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 import base64
 import os
 import json
+import re
 import io
-from groq import Groq
+import requests
 
 upload_bp = Blueprint('upload', __name__)
-client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
+
+GROQ_API_KEY = lambda: os.environ.get('GROQ_API_KEY')
+TEXT_MODEL = 'llama-3.3-70b-versatile'
+VISION_MODEL = 'meta-llama/llama-4-maverick-17b-128e-instruct'  # Groq vision model
 
 ALLOWED_EXTENSIONS = {
-    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',  # images
-    'pdf',                                          # pdf
-    'csv',                                          # csv
-    'xlsx', 'xls',                                  # excel
-    'docx', 'doc'                                   # word
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
+    'pdf', 'csv', 'xlsx', 'xls', 'docx', 'doc'
 }
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def call_groq(messages, model, max_tokens=2000):
+    response = requests.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        headers={
+            'Authorization': f'Bearer {GROQ_API_KEY()}',
+            'Content-Type': 'application/json'
+        },
+        json={
+            'model': model,
+            'messages': messages,
+            'max_tokens': max_tokens,
+            'temperature': 0.1
+        },
+        timeout=30
+    )
+    print(f'[UPLOAD] Groq status: {response.status_code}, model: {model}')
+    result = response.json()
+    if 'error' in result:
+        print(f'[UPLOAD] Groq error: {result["error"]}')
+        raise Exception(result['error'].get('message', 'Groq error'))
+    return result['choices'][0]['message']['content'].strip()
+
+def parse_json_response(raw):
+    # Remove markdown fences
+    text = re.sub(r'```json|```', '', raw).strip()
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    # Try extracting JSON object
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        return json.loads(match.group(0))
+    raise ValueError(f'Could not parse JSON from: {text[:200]}')
+
 def extract_vendors_with_ai(text):
     prompt = f"""You are a procurement assistant. Extract all vendor/supplier information from this text.
 
-Return ONLY a valid JSON object, nothing else:
+Return ONLY a valid JSON object:
 {{
   "vendors": [
     {{
@@ -54,65 +91,58 @@ Rules:
 - Always return valid JSON only
 - No markdown, no explanation"""
 
-    response = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-        temperature=0.1
-    )
-    raw = response.choices[0].message.content.strip()
-    if raw.startswith('```'):
-        raw = raw.split('```')[1]
-        if raw.startswith('json'):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    raw = call_groq([{"role": "user", "content": prompt}], TEXT_MODEL)
+    return parse_json_response(raw)
 
 def extract_vendors_from_image(image_data, mime_type):
     base64_image = base64.b64encode(image_data).decode('utf-8')
-    prompt = """Extract all vendor/supplier information from this image (WhatsApp screenshot, invoice, quote, business card, handwritten note, etc).
+    prompt = """You are a procurement assistant. Look at this image carefully — it could be a WhatsApp screenshot, invoice, quote, business card, or handwritten note.
 
-Return ONLY valid JSON:
+Extract ALL vendor/supplier information visible in the image.
+
+Return ONLY this valid JSON object:
 {
   "vendors": [
     {
       "name": "vendor name",
-      "phone": "phone or empty",
-      "email": "email or empty",
-      "category": "category or empty",
+      "phone": "phone or empty string",
+      "email": "email or empty string",
+      "category": "category or empty string",
       "products": [
         {
           "name": "product name",
-          "quantity": "qty or empty",
-          "unit": "unit or empty",
+          "quantity": "qty or empty string",
+          "unit": "unit or empty string",
           "price": 0,
-          "currency": "PKR or empty",
-          "notes": "terms or empty"
+          "currency": "PKR or empty string",
+          "notes": "terms or empty string"
         }
       ]
     }
   ],
   "confidence": 0.9,
-  "raw_text": "text you read from image"
-}"""
+  "raw_text": "all text you can read from the image"
+}
 
-    response = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}},
-                {"type": "text", "text": prompt}
-            ]
-        }],
-        max_tokens=2000,
-        temperature=0.1
-    )
-    raw = response.choices[0].message.content.strip()
-    if raw.startswith('```'):
-        raw = raw.split('```')[1]
-        if raw.startswith('json'):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+No markdown. No explanation. Just JSON."""
+
+    messages = [{
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
+            },
+            {
+                "type": "text",
+                "text": prompt
+            }
+        ]
+    }]
+
+    raw = call_groq(messages, VISION_MODEL)
+    print(f'[UPLOAD] vision raw: {repr(raw[:300])}')
+    return parse_json_response(raw)
 
 @upload_bp.route('/upload/file', methods=['POST'])
 @jwt_required()
@@ -129,9 +159,9 @@ def upload_file():
     extracted = None
 
     try:
-        # --- IMAGES ---
+        # --- IMAGES (WhatsApp screenshots etc) ---
         if ext in {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'}:
-            mime_type = f'image/{ext}' if ext != 'jpg' else 'image/jpeg'
+            mime_type = 'image/jpeg' if ext == 'jpg' else f'image/{ext}'
             extracted = extract_vendors_from_image(file_data, mime_type)
 
         # --- PDF ---
@@ -144,7 +174,6 @@ def upload_file():
             if text.strip():
                 extracted = extract_vendors_with_ai(text)
             else:
-                # scanned PDF — convert first page to image
                 extracted = extract_vendors_from_image(file_data, 'application/pdf')
 
         # --- CSV ---
@@ -182,15 +211,17 @@ def upload_file():
             'file_type': ext
         })
 
-    except json.JSONDecodeError:
-        return jsonify({'error': 'AI could not parse the file. Try a clearer file.'}), 422
+    except json.JSONDecodeError as e:
+        print(f'[UPLOAD] JSON error: {e}')
+        return jsonify({'error': 'AI could not parse the file. Try a clearer image.'}), 422
     except Exception as e:
+        print(f'[UPLOAD] Error: {e}')
         return jsonify({'error': str(e)}), 500
 
 
 def build_summary(vendors, filename):
     if not vendors:
-        return f"I couldn't find any vendor information in '{filename}'. Try a different file."
+        return f"I couldn't find any vendor information in '{filename}'. Try a clearer image."
     parts = []
     for v in vendors:
         name = v.get('name', 'Unknown vendor')
@@ -209,7 +240,7 @@ def build_summary(vendors, filename):
         else:
             parts.append(name)
 
-    summary = f"I found {len(vendors)} vendor{'s' if len(vendors) > 1 else ''}: "
+    summary = f"Found {len(vendors)} vendor{'s' if len(vendors) > 1 else ''}: "
     summary += '; '.join(parts[:5])
     if len(vendors) > 5:
         summary += f' and {len(vendors) - 5} more'
