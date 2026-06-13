@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { procurementsAPI, poAPI } from '../lib/api'
+import api from '../lib/api'
 import toast from 'react-hot-toast'
 
 export default function ProcurementDetail() {
@@ -10,6 +11,10 @@ export default function ProcurementDetail() {
   const [quotes, setQuotes] = useState(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [showReminder, setShowReminder] = useState(false)
+  const [reminderData, setReminderData] = useState(null)
+  const [selectedPvIds, setSelectedPvIds] = useState([])
+  const [sendingReminder, setSendingReminder] = useState(false)
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
   useEffect(() => { load() }, [id])
@@ -24,6 +29,45 @@ export default function ProcurementDetail() {
       setQuotes(qr.data)
     } catch { toast.error('Failed to load') }
     finally { setLoading(false) }
+  }
+
+  async function openReminderModal() {
+    try {
+      const r = await api.get(`/api/procurements/${id}/reminder-status`)
+      setReminderData(r.data)
+      // default: select all non-replied vendors that need a reminder
+      const defaults = r.data.vendors
+        .filter(v => v.status !== 'replied')
+        .map(v => v.pv_id)
+      setSelectedPvIds(defaults)
+      setShowReminder(true)
+    } catch {
+      toast.error('Failed to load vendor status')
+    }
+  }
+
+  function toggleVendor(pv_id) {
+    setSelectedPvIds(prev =>
+      prev.includes(pv_id) ? prev.filter(x => x !== pv_id) : [...prev, pv_id]
+    )
+  }
+
+  async function sendReminders() {
+    if (!selectedPvIds.length) {
+      toast.error('Select at least one vendor')
+      return
+    }
+    setSendingReminder(true)
+    try {
+      const r = await api.post(`/api/procurements/${id}/send-reminders`, { pv_ids: selectedPvIds })
+      toast.success(r.data.message)
+      setShowReminder(false)
+      load()
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send reminders')
+    } finally {
+      setSendingReminder(false)
+    }
   }
 
   async function handleSelectWinner(pv_id) {
@@ -77,11 +121,18 @@ export default function ProcurementDetail() {
     rejected: '#ef4444', completed: '#8b5cf6',
   }
 
+  const vendorStatusBadge = {
+    replied: { bg: '#d1fae5', color: '#065f46', label: 'Replied' },
+    opened: { bg: '#dbeafe', color: '#1e40af', label: 'Sent' },
+    not_opened: { bg: '#f3f4f6', color: '#6b7280', label: 'Not sent' },
+  }
+
   if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>
   if (!data) return <div style={{ padding: 40 }}>Not found</div>
 
   const proc = data.procurement
   const status = proc.status
+  const canRemind = status === 'pending_quotes'
 
   return (
     <div style={{ padding: 32, maxWidth: 900 }}>
@@ -99,13 +150,18 @@ export default function ProcurementDetail() {
 
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+        {canRemind && (
+          <button onClick={openReminderModal} style={{ padding: '10px 20px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+            🔔 Remind Vendors
+          </button>
+        )}
         {status === 'pending_approval' && user.role !== 'requester' && (
           <>
             <button onClick={handleApprove} disabled={sending} style={{ padding: '10px 20px', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
-              ✅ Approve
+              ✓ Approve
             </button>
             <button onClick={handleReject} disabled={sending} style={{ padding: '10px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
-              ❌ Reject
+              ✕ Reject
             </button>
           </>
         )}
@@ -196,7 +252,7 @@ export default function ProcurementDetail() {
                       </button>
                     )}
                     {proc.selected_vendor_id === q.vendor_id && (
-                      <span style={{ color: '#059669', fontWeight: 600, fontSize: 13 }}>✓ Selected</span>
+                      <span style={{ color: '#059669', fontWeight: 600, fontSize: 13 }}>✔ Selected</span>
                     )}
                   </td>
                 </tr>
@@ -205,7 +261,6 @@ export default function ProcurementDetail() {
           </table>
         )}
 
-        {/* Pending vendors */}
         {quotes?.pending?.length > 0 && (
           <div style={{ padding: '12px 24px', borderTop: '1px solid #f3f4f6' }}>
             <p style={{ fontSize: 13, color: '#6b7280' }}>
@@ -229,6 +284,102 @@ export default function ProcurementDetail() {
           )) : <p style={{ color: '#9ca3af' }}>No activity yet.</p>}
         </div>
       </div>
+
+      {/* REMINDER MODAL */}
+      {showReminder && reminderData && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 32, width: 520, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e3a5f', margin: 0 }}>🔔 Remind Vendors</h2>
+              <button onClick={() => setShowReminder(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#9ca3af' }}>×</button>
+            </div>
+
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>
+              Select vendors to send a reminder email for <strong>{reminderData.procurement_title}</strong>.
+            </p>
+
+            {/* Remind all non-replied */}
+            <button
+              onClick={() => {
+                const nonReplied = reminderData.vendors.filter(v => v.status !== 'replied').map(v => v.pv_id)
+                setSelectedPvIds(nonReplied)
+              }}
+              style={{ width: '100%', padding: '10px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 8, fontWeight: 600, cursor: 'pointer', marginBottom: 16, fontSize: 13 }}
+            >
+              Select all who haven't replied ({reminderData.vendors.filter(v => v.status !== 'replied').length})
+            </button>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              {reminderData.vendors.map(v => {
+                const badge = vendorStatusBadge[v.status]
+                const selected = selectedPvIds.includes(v.pv_id)
+                return (
+                  <div
+                    key={v.pv_id}
+                    onClick={() => v.status !== 'replied' && toggleVendor(v.pv_id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '14px 16px', borderRadius: 10,
+                      border: selected ? '2px solid #1e3a5f' : '1.5px solid #e5e7eb',
+                      background: selected ? '#f0f4ff' : '#fafafa',
+                      cursor: v.status !== 'replied' ? 'pointer' : 'default',
+                      opacity: v.status === 'replied' ? 0.6 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => {}}
+                      disabled={v.status === 'replied'}
+                      style={{ width: 16, height: 16, accentColor: '#1e3a5f' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: 14 }}>{v.vendor_name}</span>
+                        {v.urgent && (
+                          <span style={{ background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>
+                            URGENT — deadline &lt;24h
+                          </span>
+                        )}
+                        {v.suggest_reminder && !v.urgent && (
+                          <span style={{ background: '#fffbeb', color: '#92400e', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>
+                            No reply in 48h
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{v.vendor_email || 'No email'}</div>
+                      {v.email_sent_at && (
+                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                          Sent {new Date(v.email_sent_at).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ background: badge.bg, color: badge.color, fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                      {badge.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowReminder(false)}
+                style={{ flex: 1, padding: '12px', background: '#f3f4f6', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={sendReminders}
+                disabled={sendingReminder || !selectedPvIds.length}
+                style={{ flex: 2, padding: '12px', background: selectedPvIds.length ? '#1e3a5f' : '#9ca3af', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: selectedPvIds.length ? 'pointer' : 'not-allowed' }}
+              >
+                {sendingReminder ? 'Sending...' : `Send Reminder to ${selectedPvIds.length} vendor${selectedPvIds.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

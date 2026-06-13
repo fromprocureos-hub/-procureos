@@ -23,6 +23,7 @@ from routes.procurements import procurements_bp
 from routes.spec_intelligence import spec_bp
 from routes.quotes import quotes_bp
 from routes.po import po_bp
+from routes.reminders import reminders_bp
 
 # ── CREATE APP ────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ def create_app():
     app.register_blueprint(procurements_bp,  url_prefix='/procurements')
     app.register_blueprint(quotes_bp,        url_prefix='/api/quote')
     app.register_blueprint(po_bp,            url_prefix='/po')
+    app.register_blueprint(reminders_bp,     url_prefix='/api')
     app.register_blueprint(vendor_lists_bp)
     app.register_blueprint(upload_bp)
 
