@@ -82,7 +82,7 @@ auto_deadline = (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%dT%H:%M
             {'role': 'user', 'content': f"""Fix this RFQ. Use company history to suggest realistic quantity and specs.
 Return {{"item_name":"...","quantity":"number","unit":"...","notes":"detailed specs","changes_summary":"one sentence"}}.
 
-Original — Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Notes:{d.get('notes','')}
+Original - Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Notes:{d.get('notes','')}
 Fixes: {fixes}"""}
         ], max_tokens=300)
         parsed['deadline'] = auto_deadline
