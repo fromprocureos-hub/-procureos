@@ -1,8 +1,10 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 import os
 import json
 import requests
+from models import db, User
+from context import build_company_context, get_item_history
 
 spec_bp = Blueprint('spec', __name__)
 
@@ -20,15 +22,27 @@ def groq(messages, max_tokens=400):
     return json.loads(result['choices'][0]['message']['content'])
 
 
+def get_company_id():
+    uid = get_jwt_identity()
+    user = User.query.get(uid)
+    return user.company_id if user else None
+
+
 @spec_bp.route('/spec-check', methods=['POST'])
 @jwt_required()
 def check_spec():
     d = request.get_json()
+    company_id = get_company_id()
+    ctx = build_company_context(company_id)
+    item_history = get_item_history(company_id, d.get('item_name', ''))
+
     try:
         parsed = groq([
             {'role': 'system', 'content': 'Return only valid JSON.'},
-            {'role': 'user', 'content': f"""Analyze this RFQ for issues. Return {{"warnings":[{{"type":"vague|missing_info|quantity|deadline","severity":"high|medium","message":"issue","impact":"consequence","fix":"fix"}}]}}. Max 3 warnings. Empty array if fine.
+            {'role': 'user', 'content': f"""{ctx}
+{item_history}
 
+Analyze this RFQ for issues. Return {{"warnings":[{{"type":"vague|missing_info|quantity|deadline","severity":"high|medium","message":"issue","impact":"consequence","fix":"fix"}}]}}. Max 3. Empty array if fine.
 Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Deadline:{d.get('deadline')} Notes:{d.get('notes','')}"""}
         ], max_tokens=400)
         warnings = parsed.get('warnings', [])
@@ -44,16 +58,24 @@ Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Deadline:{d.ge
 @jwt_required()
 def rfq_rewrite():
     d = request.get_json()
+    company_id = get_company_id()
+    ctx = build_company_context(company_id)
+    item_history = get_item_history(company_id, d.get('item_name', ''))
     warnings = d.get('warnings', [])
     fixes = '; '.join([w['fix'] for w in warnings])
+
     try:
         parsed = groq([
             {'role': 'system', 'content': 'Return only valid JSON.'},
-            {'role': 'user', 'content': f"""Fix this RFQ based on the issues. Return {{"item_name":"...","quantity":"...","unit":"...","deadline":"...","notes":"...","changes_summary":"one sentence"}}.
+            {'role': 'user', 'content': f"""{ctx}
+{item_history}
+
+Fix this RFQ. Use company history to suggest realistic quantity, specs, and deadline.
+Return {{"item_name":"...","quantity":"number","unit":"...","deadline":"YYYY-MM-DDTHH:MM","notes":"detailed specs","changes_summary":"one sentence"}}.
 
 Original — Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Deadline:{d.get('deadline')} Notes:{d.get('notes','')}
-Fixes to apply: {fixes}"""}
-        ], max_tokens=300)
+Fixes: {fixes}"""}
+        ], max_tokens=350)
         return jsonify({'rewritten': parsed})
     except Exception as e:
         print(f'[GROQ ERROR] rfq-rewrite: {e}')
@@ -65,12 +87,16 @@ Fixes to apply: {fixes}"""}
 def vendor_warning():
     d = request.get_json()
     vendor_name = d.get('vendor_name', '')
+    company_id = get_company_id()
+    ctx = build_company_context(company_id)
+
     try:
         parsed = groq([
             {'role': 'system', 'content': 'Return only valid JSON.'},
-            {'role': 'user', 'content': f"""Single vendor risk warning. Return {{"warning":"2 sentences","risk_level":"high|medium|low"}}.
+            {'role': 'user', 'content': f"""{ctx}
 
-Vendor:{vendor_name} Reliability:{d.get('vendor_reliability')}% Item:{d.get('item_name')} Category:{d.get('category')} Deadline:{d.get('deadline')} Other vendors available:{len(d.get('available_vendors',[]))}"""}
+Single vendor risk warning. Return {{"warning":"2 sentences","risk_level":"high|medium|low"}}.
+Vendor:{vendor_name} Reliability:{d.get('vendor_reliability')}% Item:{d.get('item_name')} Category:{d.get('category')} Deadline:{d.get('deadline')} Other vendors:{len(d.get('available_vendors',[]))}"""}
         ], max_tokens=150)
         return jsonify(parsed)
     except Exception as e:
