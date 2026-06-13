@@ -93,17 +93,19 @@ async function handleAIFix() {
       warnings: specWarnings
     })
     const rw = r.data.rewritten
-    setForm(prev => ({
-      ...prev,
-      item_name: rw.item_name || prev.item_name,
-      quantity: rw.quantity || prev.quantity,
-      unit: rw.unit || prev.unit,
-      deadline: rw.deadline || prev.deadline,
-      notes: rw.notes || prev.notes,
-    }))
-    setShowSpecModal(false)
-    setStep(1)
-    toast.success('✨ AI improved your RFQ — review and continue')
+    const deadline = rw.deadline ? rw.deadline.slice(0, 16) : ''
+setForm({
+  ...form,
+  item_name: rw.item_name || form.item_name,
+  quantity: rw.quantity || form.quantity,
+  unit: rw.unit || form.unit,
+  deadline: deadline,
+  notes: rw.notes || form.notes,
+})
+setProcurement(null)
+setShowSpecModal(false)
+setStep(1)
+toast.success('✨ AI improved your RFQ — review and continue')
   } catch (err) {
     toast.error('AI rewrite failed, please fix manually')
   } finally {
