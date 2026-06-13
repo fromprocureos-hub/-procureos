@@ -81,47 +81,35 @@ export default function NewProcurement() {
     }
     await doSendRFQ()
   }
-
-  async function handleAIFix() {
-    setRewriting(true)
-    try {
-      const r = await api.post('/api/rfq-rewrite', {
-        item_name: procurement.item_name,
-        quantity: procurement.quantity,
-        unit: procurement.unit,
-        deadline: procurement.deadline,
-        notes: procurement.notes,
-        warnings: specWarnings
-      })
-      const rw = r.data.rewritten
-      // Update the procurement object with rewritten values
-      setProcurement(prev => ({
-        ...prev,
-        item_name: rw.item_name || prev.item_name,
-        quantity: rw.quantity || prev.quantity,
-        unit: rw.unit || prev.unit,
-        deadline: rw.deadline || prev.deadline,
-        notes: rw.notes || prev.notes,
-      }))
-      // Also update form so if user goes back it's prefilled
-      setForm(prev => ({
-        ...prev,
-        item_name: rw.item_name || prev.item_name,
-        quantity: rw.quantity || prev.quantity,
-        unit: rw.unit || prev.unit,
-        deadline: rw.deadline || prev.deadline,
-        notes: rw.notes || prev.notes,
-      }))
-      setShowSpecModal(false)
-      toast.success(rw.changes_summary || 'RFQ improved by AI!')
-      // Auto-proceed to send
-      await doSendRFQ()
-    } catch (err) {
-      toast.error('AI rewrite failed, please fix manually')
-    } finally {
-      setRewriting(false)
-    }
+async function handleAIFix() {
+  setRewriting(true)
+  try {
+    const r = await api.post('/api/rfq-rewrite', {
+      item_name: procurement.item_name,
+      quantity: procurement.quantity,
+      unit: procurement.unit,
+      deadline: procurement.deadline,
+      notes: procurement.notes,
+      warnings: specWarnings
+    })
+    const rw = r.data.rewritten
+    setForm(prev => ({
+      ...prev,
+      item_name: rw.item_name || prev.item_name,
+      quantity: rw.quantity || prev.quantity,
+      unit: rw.unit || prev.unit,
+      deadline: rw.deadline || prev.deadline,
+      notes: rw.notes || prev.notes,
+    }))
+    setShowSpecModal(false)
+    setStep(1)
+    toast.success('✨ AI improved your RFQ — review and continue')
+  } catch (err) {
+    toast.error('AI rewrite failed, please fix manually')
+  } finally {
+    setRewriting(false)
   }
+}
 
   async function doSendRFQ() {
     setShowSpecModal(false)
