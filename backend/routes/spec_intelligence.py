@@ -42,7 +42,9 @@ def check_spec():
             {'role': 'user', 'content': f"""{ctx}
 {item_history}
 
-Analyze this RFQ for issues. Return {{"warnings":[{{"type":"vague|missing_info|quantity|deadline","severity":"high|medium","message":"issue","impact":"consequence","fix":"fix"}}]}}. Max 3. Empty array if fine.
+Analyze this RFQ for real procurement issues only. Return {{"warnings":[{{"type":"vague|missing_info|quantity|deadline","severity":"high|medium","message":"issue","impact":"consequence","fix":"fix"}}]}}. Max 3. Empty array if fine.
+IGNORE: unit naming style, minor wording. Only flag industry mismatch if item could cause serious legal or safety risk (e.g. medical supplies for a construction company). Never flag office supplies, IT equipment, or general business items.
+Only flag if it will genuinely cost money or reduce supplier responses.
 Item:{d.get('item_name')} Qty:{d.get('quantity')} {d.get('unit')} Deadline:{d.get('deadline')} Notes:{d.get('notes','')}"""}
         ], max_tokens=400)
         warnings = parsed.get('warnings', [])
