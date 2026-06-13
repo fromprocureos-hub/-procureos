@@ -11,7 +11,7 @@ upload_bp = Blueprint('upload', __name__)
 
 GROQ_API_KEY = lambda: os.environ.get('GROQ_API_KEY')
 TEXT_MODEL = 'llama-3.3-70b-versatile'
-VISION_MODEL = 'meta-llama/llama-4-maverick-17b-128e-instruct'  # Groq vision model
+VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'  # Groq vision model
 
 ALLOWED_EXTENSIONS = {
     'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
